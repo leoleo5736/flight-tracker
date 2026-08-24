@@ -183,13 +183,20 @@ function byStamp(rows){
   return Object.keys(map).sort().map(function(s){ return { stamp: s, price: map[s] }; });
 }
 
+// 有幾個不同的日期（一天抓兩次也只算一天）
+function dayCount(series){
+  var days = {};
+  series.forEach(function(d){ days[d.stamp.slice(0, 10)] = 1; });
+  return Object.keys(days).length;
+}
+
 function render(rows){
   var series = byStamp(rows);
   var prices = series.map(function(d){ return d.price; });
   var latest = series[series.length - 1];
   var min = Math.min.apply(null, prices);
   var max = Math.max.apply(null, prices);
-  var avg = Math.round(prices.reduce(function(a,b){ return a+b; }, 0) / prices.length);
+  var days = dayCount(series);
 
   // ---- 判斷指標 ----
   var box = document.getElementById("verdict");
@@ -197,23 +204,23 @@ function render(rows){
   var pct = prices.length > 1 ? Math.round(cheaperCount / (prices.length - 1) * 100) : 0;
 
   var cls, tag, say;
-  if (series.length < 3){
+  if (days < 3){
     cls = "wait";
     tag = "資料還在累積中";
-    say = "目前只有 " + series.length + " 天的紀錄，還沒辦法判斷這個價格算高還算低。"
-        + "系統每天早上九點會自己抓一次，累積到 3 天以上這裡就會出現判斷。";
+    say = "目前只有 " + days + " 天的紀錄（共 " + series.length + " 筆），還沒辦法判斷這個價格算高還算低。"
+        + "系統每天早上九點和晚上十一點各抓一次，累積到 3 天以上這裡就會出現判斷。";
   } else if (latest.price <= min){
     cls = "low"; tag = "目前最低";
     say = "這是開始追蹤以來看過最低的價格。";
   } else if (pct <= 25){
     cls = "low"; tag = "偏低";
-    say = "在看過的 " + series.length + " 個價格裡，只有 " + cheaperCount + " 次比現在便宜。這個價格不錯。";
+    say = "在看過的 " + series.length + " 次紀錄裡，只有 " + cheaperCount + " 次比現在便宜。這個價格不錯。";
   } else if (pct <= 60){
     cls = "mid"; tag = "中間";
-    say = "在看過的 " + series.length + " 個價格裡，有 " + cheaperCount + " 次比現在便宜。算是常見的價位。";
+    say = "在看過的 " + series.length + " 次紀錄裡，有 " + cheaperCount + " 次比現在便宜。算是常見的價位。";
   } else {
     cls = "high"; tag = "偏高";
-    say = "在看過的 " + series.length + " 個價格裡，有 " + cheaperCount + " 次比現在便宜。今天不是好時機。";
+    say = "在看過的 " + series.length + " 次紀錄裡，有 " + cheaperCount + " 次比現在便宜。今天不是好時機。";
   }
   if (latest.price < ALERT_BELOW && cls !== "wait"){
     say += " 而且已經低於你設定的 " + nt(ALERT_BELOW) + "。";
@@ -230,7 +237,7 @@ function render(rows){
   // ---- 數字列 ----
   var diff = latest.price - min;
   document.getElementById("stats").innerHTML =
-    stat("追蹤天數", series.length + " 天") +
+    stat("追蹤天數", days + " 天 / " + series.length + " 筆") +
     stat("看過最低", nt(min)) +
     stat("看過最高", nt(max)) +
     stat("比最低貴", diff === 0 ? "就是最低" : nt(diff));
@@ -272,7 +279,14 @@ function render(rows){
 
   new Chart(document.getElementById("chart"), {
     type: "line",
-    data: { labels: stamps.map(function(s){ return s.slice(5, 10); }), datasets: datasets },
+    data: {
+      // 一天抓兩次，所以標籤要帶上是早上還是晚上
+      labels: stamps.map(function(s){
+        var hour = parseInt(s.slice(11, 13), 10);
+        return s.slice(5, 10) + (hour < 15 ? " 早" : " 晚");
+      }),
+      datasets: datasets
+    },
     options: {
       responsive: true,
       maintainAspectRatio: false,
