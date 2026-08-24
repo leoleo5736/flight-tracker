@@ -88,7 +88,10 @@
 
   <header>
     <h1>台北 ↔ 西雅圖 機票價格追蹤</h1>
-    <p class="sub">長榮直飛 · 去程 2026/10/08 · 回程 2026/10/18 · 顯示的都是「一個人來回總價」</p>
+    <p class="sub">
+      長榮直飛來回 · 去程 10/08（BR24 或 BR26）· 回程 10/18（BR23 或 BR25）<br>
+      圖表和表格上的數字，都是<strong>一個人整趟來回</strong>要付的錢
+    </p>
   </header>
 
   <div id="verdict" class="card wait">
@@ -106,6 +109,17 @@
   <div class="card">
     <h2>最近紀錄</h2>
     <div id="tablebox"></div>
+  </div>
+
+  <div class="card">
+    <p class="note">
+      <strong>為什麼只看到去程班次？</strong>
+      查的是「來回票」這一整個商品，一張票包含去程和回程。
+      Google 回傳的資料裡只帶去程班次（BR24 或 BR26），回程 BR23／BR25 沒有附進來。<br>
+      所以「去程搭 BR24」那條線的意思是
+      <strong>「去程搭 BR24、回程搭當天長榮班機，這整趟來回一個人多少錢」</strong>，
+      不是「BR24 這一段的票價」。回程是含在裡面的。
+    </p>
   </div>
 
   <div class="card">
@@ -209,7 +223,7 @@ function render(rows){
   box.className = "card " + cls;
   box.innerHTML =
     '<div class="v-tag">' + tag + '</div>' +
-    '<div class="v-price">' + nt(latest.price) + '<small>／人 來回</small></div>' +
+    '<div class="v-price">' + nt(latest.price) + '<small>／一人 來回總價</small></div>' +
     '<div class="v-say">' + say + '</div>' +
     '<div class="v-meta">最後更新 ' + latest.stamp + '（台北時間）· 距離出發還有 ' + dleft + ' 天</div>';
 
@@ -232,7 +246,7 @@ function render(rows){
     rows.forEach(function(r){ if (r["去程航班"] === f) lookup[r["抓取時間"]] = r["來回總價TWD"]; });
     var color = COLORS[f] || FALLBACK_COLORS[i % FALLBACK_COLORS.length];
     return {
-      label: f,
+      label: "去程搭 " + f,
       data: stamps.map(function(s){ return s in lookup ? lookup[s] : null; }),
       borderColor: color,
       backgroundColor: color,
@@ -285,8 +299,8 @@ function render(rows){
   // ---- 最近紀錄表 ----
   var recent = rows.slice().reverse().slice(0, 20);
   var html = '<table><thead><tr>' +
-    '<th>抓取時間</th><th>去程航班</th><th>起飛</th><th>機型</th>' +
-    '<th style="text-align:right">來回總價</th></tr></thead><tbody>';
+    '<th>抓取時間</th><th>去程搭</th><th>去程起飛</th><th>機型</th>' +
+    '<th style="text-align:right">整趟來回總價</th></tr></thead><tbody>';
   recent.forEach(function(r){
     var cheap = r["來回總價TWD"] < ALERT_BELOW;
     html += '<tr>' +
