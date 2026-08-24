@@ -1,27 +1,37 @@
 name: 每日抓機票價格
+
 on:
   schedule:
-    - cron: "0 1 * * *"   # UTC 01:00 = 台北時間 09:00
-  workflow_dispatch:
+    # 一天兩次。UTC 01:00 = 台北 09:00, UTC 15:00 = 台北 23:00
+    # 台北 09:00 -> 美東前一天 21:00（接晚上批次的尾巴）
+    # 台北 23:00 -> 美東當天 11:00（接上午批次的尾巴）
+    - cron: "0 1,15 * * *"
+  workflow_dispatch:        # 讓你可以在網頁上手動按一下就跑
+
 permissions:
-  contents: write
+  contents: write           # 允許把 prices.csv 寫回 repo
+
 jobs:
   track:
     runs-on: ubuntu-latest
     steps:
       - name: 取得程式碼
         uses: actions/checkout@v4
+
       - name: 安裝 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: 安裝套件
         run: pip install -r requirements.txt
+
       - name: 抓價格
         env:
           SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
           SHEET_TOKEN: ${{ secrets.SHEET_TOKEN }}
         run: python scrape.py
+
       - name: 把新資料存回 repo
         run: |
           git config user.name "flight-bot"
