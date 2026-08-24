@@ -17,6 +17,10 @@ Google Flights 的來回搜尋結果會列出「去程有哪幾班」, 每一班
 所以這支程式記錄的是: 每一個去程航班各自對應的來回總價。
 
 要改航班/日期, 只要改下面 SETTINGS 這一段就好, 其他都不用動。
+
+【便宜門檻要改 config.json】
+ALERT_BELOW 現在是從 config.json 讀進來的, 這樣網頁和程式才會用同一個數字。
+要調整門檻請改 config.json 裡的「便宜門檻」, 不要改這支程式。
 """
 
 import csv
@@ -52,10 +56,25 @@ FLIGHT_LABELS = {
     ("TPE", "SEA", "23:40"): "BR26",
 }
 
-# 來回總價低於這個數字就標記出來5%(單位: 台幣, 每人)
-ALERT_BELOW = 24700
+_HERE = os.path.dirname(os.path.abspath(__file__))
 
-CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prices.csv")
+# 便宜門檻從 config.json 讀, 這樣網頁和這支程式一定用同一個數字。
+# 萬一 config.json 不見了或壞掉, 就退回用 24700, 程式不會因此中斷。
+def _load_threshold(default=24700):
+    path = os.path.join(_HERE, "config.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            value = int(json.load(fh)["便宜門檻"])
+            print("便宜門檻: %s (讀自 config.json)" % format(value, ","))
+            return value
+    except Exception as exc:
+        print("!! 讀不到 config.json (%r), 改用預設值 %s" % (exc, format(default, ",")))
+        return default
+
+
+ALERT_BELOW = _load_threshold()
+
+CSV_PATH = os.path.join(_HERE, "prices.csv")
 
 CSV_HEADER = [
     "抓取時間",

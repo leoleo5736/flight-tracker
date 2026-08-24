@@ -43,6 +43,31 @@
     padding:20px;
     margin-bottom:16px;
   }
+  /* 資料過期警告 */
+  .stale{
+    background:#fff7ed;
+    border:2px solid #ea580c;
+    border-radius:12px;
+    padding:14px 16px;
+    margin-bottom:16px;
+    font-size:14px;
+  }
+  .stale b{color:#c2410c;display:block;margin-bottom:4px;font-size:15px;}
+  .stale .hint{color:var(--muted);font-size:13px;margin-top:6px;}
+  /* 圖表切換鈕 */
+  .tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+  .tab{
+    border:1px solid var(--line);
+    background:var(--card);
+    color:var(--muted);
+    border-radius:999px;
+    padding:5px 13px;
+    font-size:13px;
+    cursor:pointer;
+    font-family:inherit;
+  }
+  .tab.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .tabhint{font-size:12.5px;color:var(--muted);margin:0 0 12px;}
   /* 判斷指標 */
   #verdict{border-width:2px;}
   #verdict.low{border-color:var(--low);background:var(--lowbg);}
@@ -94,6 +119,8 @@
     </p>
   </header>
 
+  <div id="stale" class="stale" hidden></div>
+
   <div id="verdict" class="card wait">
     <div class="v-tag">讀取中</div>
     <div class="v-price">—</div>
@@ -103,6 +130,11 @@
 
   <div class="card">
     <h2>價格走勢</h2>
+    <div class="tabs">
+      <button class="tab on" id="tab-flight" type="button">依去程班次</button>
+      <button class="tab" id="tab-time" type="button">早上 vs 晚上</button>
+    </div>
+    <p class="tabhint" id="tabhint"></p>
     <div class="chartbox"><canvas id="chart"></canvas></div>
   </div>
 
@@ -136,10 +168,12 @@
 
 <script>
 // ---------------------------------------------------------------------------
-// 設定：要跟 scrape.py 裡的 ALERT_BELOW 一致
+// 設定全部讀 config.json，這裡的數字只是萬一讀不到時的備援。
+// 要改門檻請改 config.json，不要改這裡。
 // ---------------------------------------------------------------------------
 var ALERT_BELOW = 24700;
 var DEPART_DATE = "2026-10-08";
+var STALE_HOURS = 26;      // 超過幾小時沒更新就警告
 
 var COLORS = { "BR24": "#0f766e", "BR26": "#c2410c" };
 var FALLBACK_COLORS = ["#4338ca", "#a21caf", "#0369a1", "#65a30d"];
@@ -226,6 +260,8 @@ function render(rows){
     say += " 而且已經低於你設定的 " + nt(ALERT_BELOW) + "。";
   }
 
+  checkStale(latest.stamp);
+
   var dleft = daysUntilDeparture();
   box.className = "card " + cls;
   box.innerHTML =
@@ -242,73 +278,9 @@ function render(rows){
     stat("看過最高", nt(max)) +
     stat("比最低貴", diff === 0 ? "就是最低" : nt(diff));
 
-  // ---- 走勢圖 ----
-  var stamps = series.map(function(d){ return d.stamp; });
-  var flights = [];
-  rows.forEach(function(r){ if (flights.indexOf(r["去程航班"]) < 0) flights.push(r["去程航班"]); });
-  flights.sort();
-
-  var datasets = flights.map(function(f, i){
-    var lookup = {};
-    rows.forEach(function(r){ if (r["去程航班"] === f) lookup[r["抓取時間"]] = r["來回總價TWD"]; });
-    var color = COLORS[f] || FALLBACK_COLORS[i % FALLBACK_COLORS.length];
-    return {
-      label: "去程搭 " + f,
-      data: stamps.map(function(s){ return s in lookup ? lookup[s] : null; }),
-      borderColor: color,
-      backgroundColor: color,
-      borderWidth: 2,
-      pointRadius: stamps.length > 30 ? 2 : 4,
-      pointHoverRadius: 6,
-      tension: 0.15,
-      spanGaps: true
-    };
-  });
-
-  // 便宜門檻參考線
-  datasets.push({
-    label: "便宜門檻 " + nt(ALERT_BELOW),
-    data: stamps.map(function(){ return ALERT_BELOW; }),
-    borderColor: "#9ca3af",
-    borderWidth: 1,
-    borderDash: [5, 4],
-    pointRadius: 0,
-    pointHoverRadius: 0,
-    fill: false
-  });
-
-  new Chart(document.getElementById("chart"), {
-    type: "line",
-    data: {
-      // 一天抓兩次，所以標籤要帶上是早上還是晚上
-      labels: stamps.map(function(s){
-        var hour = parseInt(s.slice(11, 13), 10);
-        return s.slice(5, 10) + (hour < 15 ? " 早" : " 晚");
-      }),
-      datasets: datasets
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: "index", intersect: false },
-      plugins: {
-        legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 12 }, usePointStyle: true } },
-        tooltip: {
-          callbacks: {
-            title: function(items){ return stamps[items[0].dataIndex]; },
-            label: function(c){ return c.dataset.label + "　" + nt(c.parsed.y); }
-          }
-        }
-      },
-      scales: {
-        y: {
-          grid: { color: "#f0f0ef" },
-          ticks: { callback: function(v){ return (v / 1000) + "k"; }, font: { size: 11 } }
-        },
-        x: { grid: { display: false }, ticks: { font: { size: 11 }, maxRotation: 0, autoSkipPadding: 16 } }
-      }
-    }
-  });
+  // ---- 走勢圖（兩種看法，可切換）----
+  drawChart(rows, series, "flight");
+  bindTabs(rows, series);
 
   // ---- 最近紀錄表 ----
   var recent = rows.slice().reverse().slice(0, 20);
@@ -329,13 +301,205 @@ function render(rows){
   document.getElementById("tablebox").innerHTML = html;
 }
 
+// 早上還是晚上（15 點前算早）
+function isMorning(stamp){ return parseInt(stamp.slice(11, 13), 10) < 15; }
+
+var chartObj = null;
+
+function baseOptions(titleFn){
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 12 }, usePointStyle: true } },
+      tooltip: {
+        callbacks: {
+          title: titleFn,
+          label: function(c){
+            if (c.parsed.y === null) return c.dataset.label + "　沒有資料";
+            return c.dataset.label + "　" + nt(c.parsed.y);
+          }
+        }
+      }
+    },
+    scales: {
+      y: { grid: { color: "#f0f0ef" },
+           ticks: { callback: function(v){ return (v / 1000) + "k"; }, font: { size: 11 } } },
+      x: { grid: { display: false },
+           ticks: { font: { size: 11 }, maxRotation: 0, autoSkipPadding: 16 } }
+    }
+  };
+}
+
+function thresholdLine(n){
+  return {
+    label: "便宜門檻 " + nt(ALERT_BELOW),
+    data: new Array(n).fill(ALERT_BELOW),
+    borderColor: "#9ca3af",
+    borderWidth: 1,
+    borderDash: [5, 4],
+    pointRadius: 0,
+    pointHoverRadius: 0,
+    fill: false
+  };
+}
+
+function drawChart(rows, series, mode){
+  if (chartObj) chartObj.destroy();
+  var hint = document.getElementById("tabhint");
+  var cfg;
+
+  if (mode === "time"){
+    // 早上 vs 晚上：X 軸是日期，兩條線比同一天的早晚差異
+    var dayList = [];
+    series.forEach(function(d){
+      var day = d.stamp.slice(0, 10);
+      if (dayList.indexOf(day) < 0) dayList.push(day);
+    });
+    dayList.sort();
+
+    var mAll = {}, eAll = {};
+    series.forEach(function(d){
+      var day = d.stamp.slice(0, 10);
+      var bag = isMorning(d.stamp) ? mAll : eAll;
+      if (!(day in bag) || d.price < bag[day]) bag[day] = d.price;
+    });
+
+    // 算早晚平均差，直接告訴使用者有沒有差
+    var diffs = dayList.filter(function(d){ return (d in mAll) && (d in eAll); })
+                       .map(function(d){ return eAll[d] - mAll[d]; });
+    if (diffs.length === 0){
+      hint.textContent = "還沒有「同一天早晚都抓到」的紀錄，看不出日內差異。";
+    } else {
+      var avgDiff = Math.round(diffs.reduce(function(a,b){ return a+b; }, 0) / diffs.length);
+      var same = diffs.filter(function(v){ return v === 0; }).length;
+      if (same === diffs.length){
+        hint.textContent = "比對過 " + diffs.length + " 天，早上和晚上的價格完全一樣（兩條線會完全重疊）。";
+      } else if (avgDiff === 0){
+        hint.textContent = "比對過 " + diffs.length + " 天，有時早上便宜有時晚上便宜，平均沒有差別。";
+      } else if (avgDiff < 0){
+        hint.textContent = "比對過 " + diffs.length + " 天，晚上平均便宜 " + nt(-avgDiff) + "。";
+      } else {
+        hint.textContent = "比對過 " + diffs.length + " 天，早上平均便宜 " + nt(avgDiff) + "。";
+      }
+    }
+
+    cfg = {
+      type: "line",
+      data: {
+        labels: dayList.map(function(d){ return d.slice(5); }),
+        datasets: [
+          { label: "早上 9 點",
+            data: dayList.map(function(d){ return d in mAll ? mAll[d] : null; }),
+            borderColor: "#0369a1", backgroundColor: "#0369a1",
+            borderWidth: 2, pointRadius: 5, pointHoverRadius: 7,
+            pointStyle: "circle", tension: 0.15, spanGaps: true },
+          { label: "晚上 11 點",
+            data: dayList.map(function(d){ return d in eAll ? eAll[d] : null; }),
+            borderColor: "#c2410c", backgroundColor: "#c2410c",
+            borderWidth: 2, pointRadius: 5, pointHoverRadius: 7,
+            // 用空心方點，兩條線重疊時還看得出有兩個點
+            pointStyle: "rectRot", tension: 0.15, spanGaps: true },
+          thresholdLine(dayList.length)
+        ]
+      },
+      options: baseOptions(function(items){ return dayList[items[0].dataIndex]; })
+    };
+
+  } else {
+    // 依去程班次：X 軸是每一次抓取
+    var stamps = series.map(function(d){ return d.stamp; });
+    var flights = [];
+    rows.forEach(function(r){ if (flights.indexOf(r["去程航班"]) < 0) flights.push(r["去程航班"]); });
+    flights.sort();
+
+    hint.textContent = "每一個點是一次抓取。兩條線是去程搭 BR24 或 BR26 的整趟來回價。";
+
+    var datasets = flights.map(function(f, i){
+      var lookup = {};
+      rows.forEach(function(r){ if (r["去程航班"] === f) lookup[r["抓取時間"]] = r["來回總價TWD"]; });
+      var color = COLORS[f] || FALLBACK_COLORS[i % FALLBACK_COLORS.length];
+      return {
+        label: "去程搭 " + f,
+        data: stamps.map(function(s){ return s in lookup ? lookup[s] : null; }),
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: 2,
+        pointRadius: stamps.length > 30 ? 2 : 4,
+        pointHoverRadius: 6,
+        tension: 0.15,
+        spanGaps: true
+      };
+    });
+    datasets.push(thresholdLine(stamps.length));
+
+    cfg = {
+      type: "line",
+      data: {
+        labels: stamps.map(function(s){
+          return s.slice(5, 10) + (isMorning(s) ? " 早" : " 晚");
+        }),
+        datasets: datasets
+      },
+      options: baseOptions(function(items){ return stamps[items[0].dataIndex]; })
+    };
+  }
+
+  chartObj = new Chart(document.getElementById("chart"), cfg);
+}
+
+function bindTabs(rows, series){
+  var a = document.getElementById("tab-flight");
+  var b = document.getElementById("tab-time");
+  a.onclick = function(){
+    a.className = "tab on"; b.className = "tab";
+    drawChart(rows, series, "flight");
+  };
+  b.onclick = function(){
+    b.className = "tab on"; a.className = "tab";
+    drawChart(rows, series, "time");
+  };
+}
+
+// 資料太久沒更新就警告
+function checkStale(latestStamp){
+  var box = document.getElementById("stale");
+  var t = new Date(latestStamp.replace(" ", "T") + ":00+08:00");
+  var hours = (new Date() - t) / 3600000;
+  if (hours < STALE_HOURS){ box.hidden = true; return; }
+
+  var howLong = hours < 48
+    ? Math.round(hours) + " 小時"
+    : Math.floor(hours / 24) + " 天";
+  box.hidden = false;
+  box.innerHTML =
+    '<b>⚠ 資料已經 ' + howLong + ' 沒更新了</b>' +
+    '下面的價格是 ' + latestStamp + ' 抓到的，不是現在的價格。' +
+    '<div class="hint">可能是抓取程式失敗了。到 GitHub 的 Actions 頁面看看最近幾次是不是紅色叉叉，' +
+    '也可以手動按一次「Run workflow」試試。</div>';
+}
+
 function fail(msg){
   document.getElementById("verdict").className = "card wait";
   document.getElementById("verdict").innerHTML =
     '<div class="v-tag">還沒有資料</div><div class="v-say">' + msg + '</div>';
 }
 
-fetch("prices.csv?t=" + Date.now())
+// 先讀 config.json 拿門檻，讀不到就用上面的備援值，不影響後面顯示價格
+fetch("config.json?t=" + Date.now())
+  .then(function(r){ return r.ok ? r.json() : null; })
+  .then(function(cfg){
+    if (cfg){
+      if (cfg["便宜門檻"]) ALERT_BELOW = parseInt(cfg["便宜門檻"], 10);
+      if (cfg["出發日"]) DEPART_DATE = cfg["出發日"];
+      if (cfg["資料過期小時"]) STALE_HOURS = parseInt(cfg["資料過期小時"], 10);
+    }
+  })
+  .catch(function(){ /* 讀不到就用備援值 */ })
+  .then(function(){
+    return fetch("prices.csv?t=" + Date.now());
+  })
   .then(function(r){
     if (!r.ok) throw new Error("找不到 prices.csv");
     return r.text();
