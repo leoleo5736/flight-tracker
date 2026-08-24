@@ -311,6 +311,14 @@ function baseOptions(titleFn){
     responsive: true,
     maintainAspectRatio: false,
     interaction: { mode: "index", intersect: false },
+    // 手機沒有「滑鼠移開」這個動作，所以點到空白處要能關掉提示框
+    onClick: function(evt, elements, chart){
+      if (elements.length === 0){
+        chart.setActiveElements([]);
+        chart.tooltip.setActiveElements([], {x: 0, y: 0});
+        chart.update();
+      }
+    },
     plugins: {
       legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 12 }, usePointStyle: true } },
       tooltip: {
@@ -447,7 +455,36 @@ function drawChart(rows, series, mode){
   }
 
   chartObj = new Chart(document.getElementById("chart"), cfg);
+  autoHideTooltip();
 }
+
+// 手機用的：提示框自己消失，碰別的地方也會消失
+var hideTimer = null;
+
+function clearTooltip(){
+  if (!chartObj) return;
+  chartObj.setActiveElements([]);
+  chartObj.tooltip.setActiveElements([], {x: 0, y: 0});
+  chartObj.update();
+}
+
+var tooltipBound = false;
+
+function autoHideTooltip(){
+  if (tooltipBound) return;   // 切換分頁會重畫圖，但監聽只需要掛一次
+  tooltipBound = true;
+  document.getElementById("chart").addEventListener("touchstart", function(){
+    if (hideTimer) clearTimeout(hideTimer);
+    // 手指離開後 3 秒自動關掉，免得一直卡在畫面上
+    hideTimer = setTimeout(clearTooltip, 3000);
+  }, {passive: true});
+}
+
+// 碰圖表以外的地方就關掉提示
+document.addEventListener("touchstart", function(e){
+  var canvas = document.getElementById("chart");
+  if (canvas && !canvas.contains(e.target)) clearTooltip();
+}, {passive: true});
 
 function bindTabs(rows, series){
   var a = document.getElementById("tab-flight");
