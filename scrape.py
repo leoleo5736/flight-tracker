@@ -52,8 +52,8 @@ FLIGHT_LABELS = {
     ("TPE", "SEA", "23:40"): "BR26",
 }
 
-# 來回總價低於這個數字就標記出來(單位: 台幣, 每人)
-ALERT_BELOW = 26000
+# 來回總價低於這個數字就標記出來5%(單位: 台幣, 每人)
+ALERT_BELOW = 24700
 
 CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prices.csv")
 
