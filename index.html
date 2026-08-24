@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>機票價格追蹤 · 台北 ↔ 西雅圖</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    color-scheme: light;
+    --ink:#1a1a1a;
+    --muted:#6b7280;
+    --line:#e5e7eb;
+    --bg:#fafaf9;
+    --card:#ffffff;
+    --low:#15803d;
+    --lowbg:#f0fdf4;
+    --mid:#a16207;
+    --midbg:#fefce8;
+    --high:#b91c1c;
+    --highbg:#fef2f2;
+    --wait:#3730a3;
+    --waitbg:#eef2ff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    padding:24px 16px 64px;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:860px;margin:0 auto;}
+  header{margin-bottom:20px;}
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:.02em;}
+  .sub{color:var(--muted);font-size:13px;margin:0;}
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:20px;
+    margin-bottom:16px;
+  }
+  /* 判斷指標 */
+  #verdict{border-width:2px;}
+  #verdict.low{border-color:var(--low);background:var(--lowbg);}
+  #verdict.mid{border-color:var(--mid);background:var(--midbg);}
+  #verdict.high{border-color:var(--high);background:var(--highbg);}
+  #verdict.wait{border-color:var(--wait);background:var(--waitbg);}
+  .v-tag{font-size:13px;font-weight:700;letter-spacing:.08em;margin-bottom:6px;}
+  .low .v-tag{color:var(--low);}
+  .mid .v-tag{color:var(--mid);}
+  .high .v-tag{color:var(--high);}
+  .wait .v-tag{color:var(--wait);}
+  .v-price{font-size:38px;font-weight:700;line-height:1.15;letter-spacing:-.02em;}
+  .v-price small{font-size:16px;font-weight:500;color:var(--muted);margin-left:6px;}
+  .v-say{margin-top:10px;font-size:15px;}
+  .v-meta{margin-top:8px;font-size:13px;color:var(--muted);}
+  /* 數字列 */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
+         border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+  .stat{background:var(--card);padding:14px 12px;text-align:center;}
+  .stat .k{font-size:12px;color:var(--muted);margin-bottom:2px;}
+  .stat .v{font-size:19px;font-weight:600;letter-spacing:-.01em;}
+  h2{font-size:15px;margin:0 0 14px;font-weight:600;}
+  .chartbox{position:relative;height:320px;}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);}
+  th{font-size:12px;color:var(--muted);font-weight:600;}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  tr:last-child td{border-bottom:none;}
+  .cheap{color:var(--low);font-weight:600;}
+  .note{font-size:13px;color:var(--muted);}
+  .note strong{color:var(--ink);}
+  footer{text-align:center;color:var(--muted);font-size:12px;margin-top:28px;}
+  @media (max-width:560px){
+    .stats{grid-template-columns:repeat(2,1fr);}
+    .v-price{font-size:32px;}
+    .chartbox{height:260px;}
+    th:nth-child(4),td:nth-child(4){display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>台北 ↔ 西雅圖 機票價格追蹤</h1>
+    <p class="sub">長榮直飛 · 去程 2026/10/08 · 回程 2026/10/18 · 顯示的都是「一個人來回總價」</p>
+  </header>
+
+  <div id="verdict" class="card wait">
+    <div class="v-tag">讀取中</div>
+    <div class="v-price">—</div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="card">
+    <h2>價格走勢</h2>
+    <div class="chartbox"><canvas id="chart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>最近紀錄</h2>
+    <div id="tablebox"></div>
+  </div>
+
+  <div class="card">
+    <p class="note">
+      <strong>這張圖能回答什麼：</strong>「今天這個價，在我看過的價格裡算高還是算低」。<br>
+      <strong>不能回答什麼：</strong>「星期幾買最便宜」—— 那需要好幾個月的資料才看得出來。<br><br>
+      離出發只剩幾週，長程線通常在出發前三週開始漲。這頁的用途是幫你確認
+      <strong>「現在買不虧」</strong>，而不是等一個大跌。
+    </p>
+  </div>
+
+  <footer>資料每天早上 9 點自動更新 · 來源 Google Flights</footer>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// 設定：要跟 scrape.py 裡的 ALERT_BELOW 一致
+// ---------------------------------------------------------------------------
+var ALERT_BELOW = 24500;
+var DEPART_DATE = "2026-10-08";
+
+var COLORS = { "BR24": "#0f766e", "BR26": "#c2410c" };
+var FALLBACK_COLORS = ["#4338ca", "#a21caf", "#0369a1", "#65a30d"];
+
+// ---------------------------------------------------------------------------
+function nt(n){ return "NT$" + Number(n).toLocaleString("en-US"); }
+
+function parseCSV(text){
+  // 去掉 Excel 用的 BOM，不然第一個欄位名稱會壞掉
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  var lines = text.trim().split(/\r?\n/).filter(function(l){ return l.trim() !== ""; });
+  if (lines.length < 2) return [];
+  var head = lines[0].split(",");
+  var out = [];
+  for (var i = 1; i < lines.length; i++){
+    var cells = lines[i].split(",");
+    var row = {};
+    for (var j = 0; j < head.length; j++) row[head[j]] = (cells[j] || "").trim();
+    row["來回總價TWD"] = parseInt(row["來回總價TWD"], 10);
+    if (!isNaN(row["來回總價TWD"])) out.push(row);
+  }
+  return out;
+}
+
+function daysUntilDeparture(){
+  var d = new Date(DEPART_DATE + "T00:00:00+08:00");
+  return Math.ceil((d - new Date()) / 86400000);
+}
+
+function stat(k, v){
+  return '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>';
+}
+
+// 每一次抓取時間 -> 當次最低價（BR24/BR26 取低的那個）
+function byStamp(rows){
+  var map = {};
+  rows.forEach(function(r){
+    var s = r["抓取時間"];
+    if (!(s in map) || r["來回總價TWD"] < map[s]) map[s] = r["來回總價TWD"];
+  });
+  return Object.keys(map).sort().map(function(s){ return { stamp: s, price: map[s] }; });
+}
+
+function render(rows){
+  var series = byStamp(rows);
+  var prices = series.map(function(d){ return d.price; });
+  var latest = series[series.length - 1];
+  var min = Math.min.apply(null, prices);
+  var max = Math.max.apply(null, prices);
+  var avg = Math.round(prices.reduce(function(a,b){ return a+b; }, 0) / prices.length);
+
+  // ---- 判斷指標 ----
+  var box = document.getElementById("verdict");
+  var cheaperCount = prices.filter(function(p){ return p < latest.price; }).length;
+  var pct = prices.length > 1 ? Math.round(cheaperCount / (prices.length - 1) * 100) : 0;
+
+  var cls, tag, say;
+  if (series.length < 3){
+    cls = "wait";
+    tag = "資料還在累積中";
+    say = "目前只有 " + series.length + " 天的紀錄，還沒辦法判斷這個價格算高還算低。"
+        + "系統每天早上九點會自己抓一次，累積到 3 天以上這裡就會出現判斷。";
+  } else if (latest.price <= min){
+    cls = "low"; tag = "目前最低";
+    say = "這是開始追蹤以來看過最低的價格。";
+  } else if (pct <= 25){
+    cls = "low"; tag = "偏低";
+    say = "在看過的 " + series.length + " 個價格裡，只有 " + cheaperCount + " 次比現在便宜。這個價格不錯。";
+  } else if (pct <= 60){
+    cls = "mid"; tag = "中間";
+    say = "在看過的 " + series.length + " 個價格裡，有 " + cheaperCount + " 次比現在便宜。算是常見的價位。";
+  } else {
+    cls = "high"; tag = "偏高";
+    say = "在看過的 " + series.length + " 個價格裡，有 " + cheaperCount + " 次比現在便宜。今天不是好時機。";
+  }
+  if (latest.price < ALERT_BELOW && cls !== "wait"){
+    say += " 而且已經低於你設定的 " + nt(ALERT_BELOW) + "。";
+  }
+
+  var dleft = daysUntilDeparture();
+  box.className = "card " + cls;
+  box.innerHTML =
+    '<div class="v-tag">' + tag + '</div>' +
+    '<div class="v-price">' + nt(latest.price) + '<small>／人 來回</small></div>' +
+    '<div class="v-say">' + say + '</div>' +
+    '<div class="v-meta">最後更新 ' + latest.stamp + '（台北時間）· 距離出發還有 ' + dleft + ' 天</div>';
+
+  // ---- 數字列 ----
+  var diff = latest.price - min;
+  document.getElementById("stats").innerHTML =
+    stat("追蹤天數", series.length + " 天") +
+    stat("看過最低", nt(min)) +
+    stat("看過最高", nt(max)) +
+    stat("比最低貴", diff === 0 ? "就是最低" : nt(diff));
+
+  // ---- 走勢圖 ----
+  var stamps = series.map(function(d){ return d.stamp; });
+  var flights = [];
+  rows.forEach(function(r){ if (flights.indexOf(r["去程航班"]) < 0) flights.push(r["去程航班"]); });
+  flights.sort();
+
+  var datasets = flights.map(function(f, i){
+    var lookup = {};
+    rows.forEach(function(r){ if (r["去程航班"] === f) lookup[r["抓取時間"]] = r["來回總價TWD"]; });
+    var color = COLORS[f] || FALLBACK_COLORS[i % FALLBACK_COLORS.length];
+    return {
+      label: f,
+      data: stamps.map(function(s){ return s in lookup ? lookup[s] : null; }),
+      borderColor: color,
+      backgroundColor: color,
+      borderWidth: 2,
+      pointRadius: stamps.length > 30 ? 2 : 4,
+      pointHoverRadius: 6,
+      tension: 0.15,
+      spanGaps: true
+    };
+  });
+
+  // 便宜門檻參考線
+  datasets.push({
+    label: "便宜門檻 " + nt(ALERT_BELOW),
+    data: stamps.map(function(){ return ALERT_BELOW; }),
+    borderColor: "#9ca3af",
+    borderWidth: 1,
+    borderDash: [5, 4],
+    pointRadius: 0,
+    pointHoverRadius: 0,
+    fill: false
+  });
+
+  new Chart(document.getElementById("chart"), {
+    type: "line",
+    data: { labels: stamps.map(function(s){ return s.slice(5, 10); }), datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 12 }, usePointStyle: true } },
+        tooltip: {
+          callbacks: {
+            title: function(items){ return stamps[items[0].dataIndex]; },
+            label: function(c){ return c.dataset.label + "　" + nt(c.parsed.y); }
+          }
+        }
+      },
+      scales: {
+        y: {
+          grid: { color: "#f0f0ef" },
+          ticks: { callback: function(v){ return (v / 1000) + "k"; }, font: { size: 11 } }
+        },
+        x: { grid: { display: false }, ticks: { font: { size: 11 }, maxRotation: 0, autoSkipPadding: 16 } }
+      }
+    }
+  });
+
+  // ---- 最近紀錄表 ----
+  var recent = rows.slice().reverse().slice(0, 20);
+  var html = '<table><thead><tr>' +
+    '<th>抓取時間</th><th>去程航班</th><th>起飛</th><th>機型</th>' +
+    '<th style="text-align:right">來回總價</th></tr></thead><tbody>';
+  recent.forEach(function(r){
+    var cheap = r["來回總價TWD"] < ALERT_BELOW;
+    html += '<tr>' +
+      '<td>' + r["抓取時間"] + '</td>' +
+      '<td>' + r["去程航班"] + '</td>' +
+      '<td>' + r["去程起飛"] + '</td>' +
+      '<td>' + r["機型"] + '</td>' +
+      '<td class="num' + (cheap ? " cheap" : "") + '">' + nt(r["來回總價TWD"]) + '</td>' +
+      '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById("tablebox").innerHTML = html;
+}
+
+function fail(msg){
+  document.getElementById("verdict").className = "card wait";
+  document.getElementById("verdict").innerHTML =
+    '<div class="v-tag">還沒有資料</div><div class="v-say">' + msg + '</div>';
+}
+
+fetch("prices.csv?t=" + Date.now())
+  .then(function(r){
+    if (!r.ok) throw new Error("找不到 prices.csv");
+    return r.text();
+  })
+  .then(function(text){
+    var rows = parseCSV(text);
+    if (rows.length === 0){ fail("prices.csv 裡還沒有價格紀錄。到 GitHub 的 Actions 手動跑一次「每日抓機票價格」就會有了。"); return; }
+    render(rows);
+  })
+  .catch(function(e){
+    fail("讀不到價格資料（" + e.message + "）。確認 prices.csv 跟這個網頁放在同一個資料夾。");
+  });
+</script>
+</body>
+</html>
